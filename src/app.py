@@ -184,3 +184,6 @@ class NetApp(App):
         nm.rescan()
         self.call_from_thread(self._load_networks)
         self.call_from_thread(self._msg, "Scan complete")
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected):
+        self.action_connect()

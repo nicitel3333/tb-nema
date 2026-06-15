@@ -48,7 +48,7 @@ def get_saved_ssids() -> set[str]:
         if not line:
             continue
         parts = _parse_terse(line)
-        if len(parts) >= 2 and "wireless" in parts[1]:
+        if len(parts) >= 2 and "wifi" in parts[1]:
             saved.add(parts[0])
     return saved
 
