@@ -4,6 +4,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.binding import Binding
 from textual import work
+import threading
 from . import nmcli as nm
 from .config import CSS
 
@@ -35,7 +36,6 @@ class NetApp(App):
         Binding("k", "cursor_up", show=False),
         Binding("g", "cursor_top", show=False),
         Binding("G", "cursor_bottom", show=False),
-        Binding("enter", "connect", "Connect", show=False),
         Binding("d", "disconnect", "Disconnect", show=False),
         Binding("D", "forget", "Forget", show=False),
         Binding("e", "ethernet", "Ethernet", show=False),
@@ -46,6 +46,7 @@ class NetApp(App):
     def __init__(self):
         super().__init__()
         self.networks: list[nm.WifiNetwork] = []
+        self._stop_event = threading.Event()
 
     def compose(self) -> ComposeResult:
         yield Static("", id="status-bar")
@@ -61,20 +62,26 @@ class NetApp(App):
         table = self.query_one(DataTable)
         table.add_columns("", "SSID", "Signal", "Security", "Saved")
         table.focus()
-        self._load_networks()
+        self._load_networks_bg()
         self._start_auto_refresh()
 
     @work(thread=True)
-    def _start_auto_refresh(self):
-        import time
-        while True:
-            time.sleep(30)
-            self.call_from_thread(self._load_networks)
+    def _load_networks_bg(self):
+        networks = nm.get_wifi_networks()
+        self.call_from_thread(self._apply_networks, networks)
 
-    def _load_networks(self):
-        self.networks = nm.get_wifi_networks()
+    def _apply_networks(self, networks):
+        self.networks = networks
         self._update_status()
         self._populate_table()
+
+    def _load_networks(self):
+        self._load_networks_bg()
+
+    @work(thread=True)
+    def _start_auto_refresh(self):
+        while not self._stop_event.wait(30):
+            self.call_from_thread(self._load_networks)
 
     def _update_status(self):
         devices = nm.get_device_status()
@@ -187,3 +194,7 @@ class NetApp(App):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected):
         self.action_connect()
+
+    def action_quit(self):
+        self._stop_event.set()
+        self.exit()
