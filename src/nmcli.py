@@ -38,24 +38,37 @@ def _parse_terse(line: str) -> list[str]:
     return parts
 
 
-def get_saved_ssids() -> set[str]:
+def get_saved_connections() -> dict[str, str]:
     r = subprocess.run(
         ["nmcli", "-t", "-e", "yes", "-f", "NAME,TYPE", "con", "show"],
         capture_output=True, text=True,
     )
-    saved = set()
+    connections = {}
     for line in r.stdout.strip().splitlines():
         if not line:
             continue
         parts = _parse_terse(line)
-        if len(parts) >= 2 and "wifi" in parts[1]:
-            saved.add(parts[0])
-    return saved
+        if len(parts) >= 2 and "wireless" in parts[1]:
+            name = parts[0]
+            r2 = subprocess.run(
+                ["nmcli", "-t", "-e", "yes", "-f", "802-11-wireless.ssid", "con", "show", name],
+                capture_output=True, text=True,
+            )
+            for l in r2.stdout.strip().splitlines():
+                p = _parse_terse(l)
+                if len(p) >= 2 and p[1]:
+                    connections[p[1]] = name
+    return connections
+
+
+def get_saved_ssids() -> set[str]:
+    return set(get_saved_connections().keys())
 
 
 def get_wifi_networks() -> list[WifiNetwork]:
     r = subprocess.run(
-        ["nmcli", "-t", "-e", "yes", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list"],
+        ["nmcli", "-t", "-e", "yes", "-f", "IN-USE,SSID,SIGNAL,SECURITY",
+         "dev", "wifi", "list", "--rescan", "no"],
         capture_output=True, text=True,
     )
     saved = get_saved_ssids()
@@ -112,7 +125,7 @@ def get_wifi_interface() -> str:
 
 def get_ethernet_device() -> DeviceStatus | None:
     for d in get_device_status():
-        if d.type == "ethernet":
+        if "ethernet" in d.type:
             return d
     return None
 
@@ -131,9 +144,9 @@ def get_current_ip(interface: str) -> str:
 
 
 def connect_wifi(ssid: str, password: str = "") -> tuple[bool, str]:
-    saved = get_saved_ssids()
+    saved = get_saved_connections()
     if ssid in saved:
-        cmd = ["nmcli", "con", "up", ssid]
+        cmd = ["nmcli", "con", "up", saved[ssid]]
     elif password:
         cmd = ["nmcli", "dev", "wifi", "connect", ssid, "password", password]
     else:
@@ -151,8 +164,10 @@ def disconnect(interface: str) -> tuple[bool, str]:
 
 
 def forget_network(ssid: str) -> tuple[bool, str]:
+    saved = get_saved_connections()
+    name = saved.get(ssid, ssid)
     r = subprocess.run(
-        ["nmcli", "con", "delete", ssid],
+        ["nmcli", "con", "delete", name],
         capture_output=True, text=True,
     )
     return r.returncode == 0, r.stderr.strip()
